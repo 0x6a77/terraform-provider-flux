@@ -105,6 +105,7 @@ type bootstrapGitResourceData struct {
 	ComponentsExtra    types.Set            `tfsdk:"components_extra"`
 	ImagePullSecret    types.String         `tfsdk:"image_pull_secret"`
 	LogLevel           types.String         `tfsdk:"log_level"`
+	Name               types.String         `tfsdk:"name"`
 	Namespace          types.String         `tfsdk:"namespace"`
 	NetworkPolicy      types.Bool           `tfsdk:"network_policy"`
 	Registry           customtypes.URL      `tfsdk:"registry"`
@@ -113,6 +114,7 @@ type bootstrapGitResourceData struct {
 	Interval           customtypes.Duration `tfsdk:"interval"`
 	SecretName         types.String         `tfsdk:"secret_name"`
 	RecurseSubmodules  types.Bool           `tfsdk:"recurse_submodules"`
+	ReadOnlyRepo       types.Bool           `tfsdk:"read_only_repo"`
 
 	AuthorName            types.String `tfsdk:"author_name"`
 	AuthorEmail           types.String `tfsdk:"author_email"`
@@ -230,6 +232,19 @@ func (r *bootstrapGitResource) Schema(ctx context.Context, req resource.SchemaRe
 				},
 				Validators: []validator.String{
 					stringvalidator.OneOf("info", "debug", "error"),
+				},
+			},
+			"name": schema.StringAttribute{
+				Description: "The name given to resources: GitRepository, Kustomization.",
+				Optional:    true,
+				Computed:    true,
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.RequiresReplace(),
+					planmodifiers.DefaultStringValue(defaultOpts.Namespace),
+				},
+				Validators: []validator.String{
+					stringvalidator.RegexMatches(regexp.MustCompile(rfc1123LabelRegex), rfc1123LabelError),
+					stringvalidator.LengthAtMost(63),
 				},
 			},
 			"namespace": schema.StringAttribute{
@@ -411,6 +426,14 @@ func (r *bootstrapGitResource) Schema(ctx context.Context, req resource.SchemaRe
 				Description: "Git repository files created and managed by the provider.",
 				Computed:    true,
 			},
+			"read_only_repo": schema.BoolAttribute{
+				Description: "If true, Flux will not commit/push any git repo changes.",
+				Optional:    true,
+				Computed:    true,
+				PlanModifiers: []planmodifier.Bool{
+					planmodifiers.DefaultBoolValue(false),
+				},
+			},
 		},
 	}
 }
@@ -571,22 +594,24 @@ func (r *bootstrapGitResource) Create(ctx context.Context, req resource.CreateRe
 
 	// Write own kustomization file
 	if data.KustomizationOverride.ValueString() != "" {
-		// Need to write empty gotk-components and gotk-sync because other wise Kustomize will not work.
-		basePath := filepath.Join(gitClient.Path(), data.Path.ValueString(), data.Namespace.ValueString())
+		// Need to write empty gotk-components and gotk-sync because otherwise Kustomize will not work.
+		basePath := filepath.Join(gitClient.Path(), data.Path.ValueString(), data.Namespace.ValueString()) // <--- this should be data.Name, but that breaks things and this is a poc
 		files := map[string]io.Reader{
 			filepath.Join(basePath, konfig.DefaultKustomizationFileName()): strings.NewReader(data.KustomizationOverride.ValueString()),
 			filepath.Join(basePath, "gotk-components.yaml"):                &strings.Reader{},
 			filepath.Join(basePath, "gotk-sync.yaml"):                      &strings.Reader{},
 		}
-		commit, signer, err := getCommit(data, "Add kustomize override")
-		if err != nil {
-			resp.Diagnostics.AddError("Unable to create commit", err.Error())
-			return
-		}
-		_, err = gitClient.Commit(commit, signer, repository.WithFiles(files))
-		if err != nil {
-			resp.Diagnostics.AddError("Could not create bootstrap provider", err.Error())
-			return
+		if !data.ReadOnlyRepo.ValueBool() {
+			commit, signer, err := getCommit(data, "Add kustomize override")
+			if err != nil {
+				resp.Diagnostics.AddError("Unable to create commit", err.Error())
+				return
+			}
+			_, err = gitClient.Commit(commit, signer, repository.WithFiles(files))
+			if err != nil {
+				resp.Diagnostics.AddError("Could not create bootstrap provider", err.Error())
+				return
+			}
 		}
 	}
 
@@ -601,7 +626,7 @@ func (r *bootstrapGitResource) Create(ctx context.Context, req resource.CreateRe
 	repositoryFiles := map[string]string{}
 	files := []string{install.MakeDefaultOptions().ManifestFile, sync.MakeDefaultOptions().ManifestFile, konfig.DefaultKustomizationFileName()}
 	for _, f := range files {
-		path := filepath.Join(data.Path.ValueString(), data.Namespace.ValueString(), f)
+		path := filepath.Join(data.Path.ValueString(), data.Namespace.ValueString(), f) // <--- this should be data.Name, but that breaks things and this is a poc
 		b, err := os.ReadFile(filepath.Join(gitClient.Path(), path))
 		if err != nil {
 			resp.Diagnostics.AddError("Could not read repository state", err.Error())
@@ -616,7 +641,7 @@ func (r *bootstrapGitResource) Create(ctx context.Context, req resource.CreateRe
 	}
 	data.RepositoryFiles = mapValue
 
-	data.ID = data.Namespace
+	data.ID = data.Name
 	diags = resp.State.Set(ctx, &data)
 	resp.Diagnostics.Append(diags...)
 }
@@ -719,22 +744,24 @@ func (r bootstrapGitResource) Update(ctx context.Context, req resource.UpdateReq
 	for k, v := range repositoryFiles {
 		files[k] = strings.NewReader(v)
 	}
-	commit, signer, err := getCommit(data, "Update Flux")
-	if err != nil {
-		resp.Diagnostics.AddError("Unable to create commit", err.Error())
-		return
-	}
-	_, err = gitClient.Commit(commit, signer, repository.WithFiles(files))
-	if err != nil && !errors.Is(err, git.ErrNoStagedFiles) {
-		resp.Diagnostics.AddError("Unable to commit updated files", err.Error())
-		return
-	}
-	// Only push if changes are committed
-	if err == nil {
-		err = gitClient.Push(ctx)
+	if !data.ReadOnlyRepo.ValueBool() {
+		commit, signer, err := getCommit(data, "Update Flux")
 		if err != nil {
-			resp.Diagnostics.AddError("Unable to push updated files", err.Error())
+			resp.Diagnostics.AddError("Unable to create commit", err.Error())
 			return
+		}
+		_, err = gitClient.Commit(commit, signer, repository.WithFiles(files))
+		if err != nil && !errors.Is(err, git.ErrNoStagedFiles) {
+			resp.Diagnostics.AddError("Unable to commit updated files", err.Error())
+			return
+		}
+		// Only push if changes are committed
+		if err == nil {
+			err = gitClient.Push(ctx)
+			if err != nil {
+				resp.Diagnostics.AddError("Unable to push updated files", err.Error())
+				return
+			}
 		}
 	}
 
@@ -800,20 +827,22 @@ func (r bootstrapGitResource) Delete(ctx context.Context, req resource.DeleteReq
 			return
 		}
 	}
-	commit, signer, err := getCommit(data, "Uninstall Flux")
-	if err != nil {
-		resp.Diagnostics.AddError("Unable to create commit", err.Error())
-		return
-	}
-	_, err = gitClient.Commit(commit, signer)
-	if err != nil {
-		resp.Diagnostics.AddError("Unable to commit removed file(s)", err.Error())
-		return
-	}
-	err = gitClient.Push(ctx)
-	if err != nil {
-		resp.Diagnostics.AddError("Unable to push removed file(s)", err.Error())
-		return
+	if !data.ReadOnlyRepo.ValueBool() {
+		commit, signer, err := getCommit(data, "Uninstall Flux")
+		if err != nil {
+			resp.Diagnostics.AddError("Unable to create commit", err.Error())
+			return
+		}
+		_, err = gitClient.Commit(commit, signer)
+		if err != nil {
+			resp.Diagnostics.AddError("Unable to commit removed file(s)", err.Error())
+			return
+		}
+		err = gitClient.Push(ctx)
+		if err != nil {
+			resp.Diagnostics.AddError("Unable to push removed file(s)", err.Error())
+			return
+		}
 	}
 }
 
@@ -829,6 +858,7 @@ func (r *bootstrapGitResource) ImportState(ctx context.Context, req resource.Imp
 
 	data := bootstrapGitResourceData{}
 	data.ID = types.StringValue(req.ID)
+	data.Name = data.ID
 	data.Namespace = data.ID
 
 	// It is impossible to determine the Author so we just set it to the default
@@ -940,7 +970,7 @@ func (r *bootstrapGitResource) ImportState(ctx context.Context, req resource.Imp
 	// Get values from flux-system GitRepository
 	gitRepository := sourcev1.GitRepository{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      data.Namespace.ValueString(),
+			Name:      data.Name.ValueString(),
 			Namespace: data.Namespace.ValueString(),
 		},
 	}
@@ -961,7 +991,7 @@ func (r *bootstrapGitResource) ImportState(ctx context.Context, req resource.Imp
 	// Get values from flux-system Kustomization
 	kustomization := kustomizev1.Kustomization{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      data.Namespace.ValueString(),
+			Name:      data.Name.ValueString(),
 			Namespace: data.Namespace.ValueString(),
 		},
 	}
@@ -1258,7 +1288,7 @@ func getInstallOptions(data bootstrapGitResourceData) install.Options {
 func getSyncOptions(data bootstrapGitResourceData) sync.Options {
 	syncOpts := sync.Options{
 		Interval:          data.Interval.ValueDuration(),
-		Name:              data.Namespace.ValueString(),
+		Name:              data.Name.ValueString(),
 		Namespace:         data.Namespace.ValueString(),
 		URL:               data.Url.ValueURL().String(),
 		Branch:            data.Branch.ValueString(),

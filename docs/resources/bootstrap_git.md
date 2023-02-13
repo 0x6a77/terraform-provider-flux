@@ -50,9 +50,11 @@ resource "flux_bootstrap_git" "this" {
 - `interval` (String) Interval at which to reconcile from bootstrap repository.
 - `kustomization_override` (String) Kustomization to override configuration set by default.
 - `log_level` (String) Log level for toolkit components.
+- `name` (String) The name given to resources: GitRepository, Kustomization.
 - `namespace` (String) The namespace scope for install manifests.
 - `network_policy` (Boolean) Deny ingress access to the toolkit controllers from other namespaces using network policies.
 - `path` (String) Path relative to the repository root, when specified the cluster sync will be scoped to this path.
+- `read_only_repo` (Boolean) If true, Flux will not commit/push any git repo changes.
 - `recurse_submodules` (Boolean) Configures the GitRepository source to initialize and include Git submodules in the artifact it produces.
 - `registry` (String) Container registry where the toolkit images are published.
 - `secret_name` (String) Name of the secret the sync credentials can be found in or stored to.
