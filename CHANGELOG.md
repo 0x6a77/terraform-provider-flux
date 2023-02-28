@@ -2,6 +2,28 @@
 
 All notable changes to this project are documented in this file.
 
+## 0.24.2
+
+**Release date:** 2023-02-28
+
+This prerelease includes flux2 [v0.40.2](https://github.com/fluxcd/flux2/releases/tag/v0.40.2).
+
+## 0.24.1
+
+**Release date:** 2023-02-23
+
+This prerelease includes flux2 [v0.40.1](https://github.com/fluxcd/flux2/releases/tag/v0.40.1).
+
+## 0.24.0
+
+**Release date:** 2023-02-20
+
+This prerelease includes flux2 [v0.40.0](https://github.com/fluxcd/flux2/releases/tag/v0.40.0).
+
+This release contains a breaking change with the removal of the `git_implementation` attribute from the `flux_sync` data source. The libgit2 implementation has been removed from Flux as the `go-git` implementation supports all Git servers, including Azure DevOps and AWS CodeCommit.
+
+Some minor fixes have been made to the new `flux_bootstrap_git` resource as users were experiencing issues setting custom components configuration.
+
 ## 0.23.0
 
 **Release date:** 2023-02-02

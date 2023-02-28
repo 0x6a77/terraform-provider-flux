@@ -51,11 +51,38 @@ import (
 )
 
 const (
-	giteaImageName = "gitea/gitea:1.17"
+	giteaImageName    = "gitea/gitea:1.17"
+	hostaliasesEnvKey = "HOSTALIASES"
 )
 
+func TestMain(m *testing.M) {
+	tmpDir, err := os.MkdirTemp("", "boostrap-git-test")
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+		return
+	}
+	hostAliases := filepath.Join(tmpDir, ".hosts")
+	f, err := os.Create(hostAliases)
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+		return
+	}
+	f.Close()
+	err = os.Setenv(hostaliasesEnvKey, hostAliases)
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+		return
+	}
+	exitVal := m.Run()
+	os.Exit(exitVal)
+	os.Unsetenv(hostaliasesEnvKey)
+}
+
 func TestBootstrapGit_InvalidKubernetesConfiguration(t *testing.T) {
-	resource.Test(t, resource.TestCase{
+	resource.ParallelTest(t, resource.TestCase{
 		ProtoV6ProviderFactories: map[string]func() (tfprotov6.ProviderServer, error){
 			"flux": providerserver.NewProtocol6WithError(New("dev")()),
 		},
@@ -77,7 +104,7 @@ resources:
 		httpClone: "https://gitub.com",
 	}
 
-	resource.Test(t, resource.TestCase{
+	resource.ParallelTest(t, resource.TestCase{
 		ProtoV6ProviderFactories: map[string]func() (tfprotov6.ProviderServer, error){
 			"flux": providerserver.NewProtocol6WithError(New("dev")()),
 		},
@@ -92,7 +119,7 @@ resources:
 
 func TestAccBootstrapGit_HTTP(t *testing.T) {
 	env := setupEnvironment(t)
-	resource.Test(t, resource.TestCase{
+	resource.ParallelTest(t, resource.TestCase{
 		ProtoV6ProviderFactories: map[string]func() (tfprotov6.ProviderServer, error){
 			"flux": providerserver.NewProtocol6WithError(New("dev")()),
 		},
@@ -118,7 +145,7 @@ func TestAccBootstrapGit_HTTP(t *testing.T) {
 
 func TestAccBootstrapGit_SSH(t *testing.T) {
 	env := setupEnvironment(t)
-	resource.Test(t, resource.TestCase{
+	resource.ParallelTest(t, resource.TestCase{
 		ProtoV6ProviderFactories: map[string]func() (tfprotov6.ProviderServer, error){
 			"flux": providerserver.NewProtocol6WithError(New("dev")()),
 		},
@@ -144,7 +171,7 @@ func TestAccBootstrapGit_SSH(t *testing.T) {
 
 func TestAccBootstrapGit_Drift(t *testing.T) {
 	env := setupEnvironment(t)
-	resource.Test(t, resource.TestCase{
+	resource.ParallelTest(t, resource.TestCase{
 		ProtoV6ProviderFactories: map[string]func() (tfprotov6.ProviderServer, error){
 			"flux": providerserver.NewProtocol6WithError(New("dev")()),
 		},
@@ -192,7 +219,7 @@ func TestAccBootstrapGit_Drift(t *testing.T) {
 
 func TestAccBootstrapGit_Upgrade(t *testing.T) {
 	env := setupEnvironment(t)
-	resource.Test(t, resource.TestCase{
+	resource.ParallelTest(t, resource.TestCase{
 		ProtoV6ProviderFactories: map[string]func() (tfprotov6.ProviderServer, error){
 			"flux": providerserver.NewProtocol6WithError(New("dev")()),
 		},
@@ -207,6 +234,25 @@ func TestAccBootstrapGit_Upgrade(t *testing.T) {
 			},
 			{
 				Config: bootstrapGitVersion(env, "v0.35.0"),
+				Check: resource.ComposeTestCheckFunc(
+					resource.TestCheckResourceAttrSet("flux_bootstrap_git.this", "repository_files.flux-system/kustomization.yaml"),
+					resource.TestCheckResourceAttrSet("flux_bootstrap_git.this", "repository_files.flux-system/gotk-components.yaml"),
+					resource.TestCheckResourceAttrSet("flux_bootstrap_git.this", "repository_files.flux-system/gotk-sync.yaml"),
+				),
+			},
+		},
+	})
+}
+
+func TestAccBootstrapGit_Components(t *testing.T) {
+	env := setupEnvironment(t)
+	resource.ParallelTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: map[string]func() (tfprotov6.ProviderServer, error){
+			"flux": providerserver.NewProtocol6WithError(New("dev")()),
+		},
+		Steps: []resource.TestStep{
+			{
+				Config: bootstrapGitComponents(env),
 				Check: resource.ComposeTestCheckFunc(
 					resource.TestCheckResourceAttrSet("flux_bootstrap_git.this", "repository_files.flux-system/kustomization.yaml"),
 					resource.TestCheckResourceAttrSet("flux_bootstrap_git.this", "repository_files.flux-system/gotk-components.yaml"),
@@ -238,7 +284,7 @@ patches:
       kind: Deployment
       labelSelector: app.kubernetes.io/part-of=flux`
 	env := setupEnvironment(t)
-	resource.Test(t, resource.TestCase{
+	resource.ParallelTest(t, resource.TestCase{
 		ProtoV6ProviderFactories: map[string]func() (tfprotov6.ProviderServer, error){
 			"flux": providerserver.NewProtocol6WithError(New("dev")()),
 		},
@@ -381,6 +427,33 @@ func bootstrapGitCustomization(env environment, kustomizationOverride string) st
 	`, env.kubeCfgPath, env.httpClone, env.username, env.password, kustomizationOverride)
 }
 
+func bootstrapGitComponents(env environment) string {
+	return fmt.Sprintf(`
+    provider "flux" {
+      config_path = "%s"
+    }
+
+    resource "flux_bootstrap_git" "this" {
+      url = "%s"
+      http = {
+        username = "%s"
+        password = "%s"
+        allow_insecure_http = true
+      }
+	  components           = [
+        "helm-controller",
+        "kustomize-controller",
+        "notification-controller",
+        "source-controller",
+      ]
+      components_extra     = [
+        "image-automation-controller",
+        "image-reflector-controller",
+      ]
+    }
+	`, env.kubeCfgPath, env.httpClone, env.username, env.password)
+}
+
 type environment struct {
 	kubeCfgPath string
 	httpClone   string
@@ -402,11 +475,12 @@ func setupEnvironment(t *testing.T) environment {
 	tmpDir := t.TempDir()
 	giteaUrl := fmt.Sprintf("http://%s:%d", giteaName, httpPort)
 
-	// Setup host alias for name resolution
-	hostAliases := filepath.Join(tmpDir, ".hosts")
-	err := os.WriteFile(hostAliases, []byte(fmt.Sprintf("%s localhost", giteaName)), 0777)
+	// Add entry to host aliases
+	hostAliases := os.Getenv(hostaliasesEnvKey)
+	f, err := os.OpenFile(hostAliases, os.O_CREATE|os.O_WRONLY|os.O_APPEND, os.ModePerm)
 	require.NoError(t, err)
-	err = os.Setenv("HOSTALIASES", hostAliases)
+	defer f.Close()
+	_, err = f.WriteString(fmt.Sprintf("%s localhost\n", giteaName))
 	require.NoError(t, err)
 
 	// Run Gitea server
