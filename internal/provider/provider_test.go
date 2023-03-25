@@ -14,6 +14,13 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package utils
+package provider
 
-const DefaultFluxVersion string = "v0.41.2"
+import (
+	"github.com/hashicorp/terraform-plugin-framework/providerserver"
+	"github.com/hashicorp/terraform-plugin-go/tfprotov6"
+)
+
+var testAccProtoV6ProviderFactories = map[string]func() (tfprotov6.ProviderServer, error){
+	"flux": providerserver.NewProtocol6WithError(New("dev")()),
+}

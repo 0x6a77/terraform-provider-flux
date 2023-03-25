@@ -22,15 +22,14 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
+	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
+	"github.com/hashicorp/terraform-plugin-testing/terraform"
 )
 
 func TestAccDataInstall_basic(t *testing.T) {
 	resourceName := "data.flux_install.main"
 	resource.ParallelTest(t, resource.TestCase{
-		PreCheck:          func() { testAccPreCheck(t) },
-		ProviderFactories: testAccProviderFactories,
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{
 				// Without required target_path set
@@ -40,13 +39,14 @@ func TestAccDataInstall_basic(t *testing.T) {
 			{
 				// With invalid log level
 				Config:      testAccDataInstallLogLevel,
-				ExpectError: regexp.MustCompile(`Error: expected log_level to be one of \[info debug error\], got warn`),
+				ExpectError: regexp.MustCompile(`Invalid Attribute Value Match`),
 			},
 			{
 				// Check default values
 				Config: testAccDataInstallBasic,
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttrSet(resourceName, "content"),
+					resource.TestCheckResourceAttr(resourceName, "components.#", "4"),
 					resource.TestCheckResourceAttr(resourceName, "log_level", "info"),
 					resource.TestCheckResourceAttr(resourceName, "namespace", "flux-system"),
 					resource.TestCheckResourceAttr(resourceName, "cluster_domain", "cluster.local"),
@@ -96,11 +96,11 @@ func TestAccDataInstall_basic(t *testing.T) {
 			},
 			{
 				Config:      testAccDataInstallWithArg("version", "foo"),
-				ExpectError: regexp.MustCompile("\"version\" must either be latest or have the prefix 'v', got: foo"),
+				ExpectError: regexp.MustCompile("must either be latest or start with 'v'"),
 			},
 			{
 				Config:      testAccDataInstallWithArg("baseurl", "http://www.example.org"),
-				ExpectError: regexp.MustCompile("Error: failed to download manifests.tar.gz"),
+				ExpectError: regexp.MustCompile("failed to download manifests.tar.gz"),
 			},
 			{
 				Config: testAccDataInstallWithArg("version", "v0.5.3"),

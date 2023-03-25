@@ -17,7 +17,12 @@ Get Kubernetes credentials from a kubeconfig file. The current context set in th
 
 ```terraform
 provider "flux" {
-  config_path = "~/.kube/config"
+  kubernetes = {
+    config_path = "~/.kube/config"
+  }
+  git = {
+    url = "https://example.com"
+  }
 }
 ```
 
@@ -25,6 +30,56 @@ provider "flux" {
 ## Schema
 
 ### Optional
+
+- `git` (Attributes) Configuration block with settings for Kubernetes. (see [below for nested schema](#nestedatt--git))
+- `kubernetes` (Attributes) Configuration block with settings for Kubernetes. (see [below for nested schema](#nestedatt--kubernetes))
+
+<a id="nestedatt--git"></a>
+### Nested Schema for `git`
+
+Required:
+
+- `url` (String) Url of git repository to bootstrap from.
+
+Optional:
+
+- `author_email` (String) Author email for Git commits.
+- `author_name` (String) Author name for Git commits. Defaults to `Flux`.
+- `branch` (String) Branch in repository to reconcile from. Defaults to `main`.
+- `commit_message_appendix` (String) String to add to the commit messages.
+- `gpg_key_id` (String) Key id for selecting a particular key.
+- `gpg_key_ring` (String) GPG key ring for signing commits.
+- `gpg_passphrase` (String, Sensitive) Passphrase for decrypting GPG private key.
+- `http` (Attributes) (see [below for nested schema](#nestedatt--git--http))
+- `read_only` (Boolean) If true, Flux will not commit/push any git repo changes. Defaults to false
+- `ssh` (Attributes) (see [below for nested schema](#nestedatt--git--ssh))
+
+<a id="nestedatt--git--http"></a>
+### Nested Schema for `git.http`
+
+Optional:
+
+- `allow_insecure_http` (Boolean) Allows http Git url connections.
+- `certificate_authority` (String) Certificate authority to validate self-signed certificates.
+- `password` (String, Sensitive) Password for basic authentication.
+- `username` (String) Username for basic authentication.
+
+
+<a id="nestedatt--git--ssh"></a>
+### Nested Schema for `git.ssh`
+
+Optional:
+
+- `password` (String, Sensitive) Password for private key.
+- `private_key` (String, Sensitive) Private key used for authenticating to the Git SSH server.
+- `username` (String) Username for Git SSH server.
+
+
+
+<a id="nestedatt--kubernetes"></a>
+### Nested Schema for `kubernetes`
+
+Optional:
 
 - `client_certificate` (String) PEM-encoded client certificate for TLS authentication.
 - `client_key` (String) PEM-encoded client certificate key for TLS authentication.

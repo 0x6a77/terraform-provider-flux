@@ -24,6 +24,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -38,11 +39,9 @@ import (
 	"github.com/fluxcd/pkg/git/gogit"
 	"github.com/fluxcd/pkg/git/repository"
 	"github.com/fluxcd/pkg/ssh"
-	"github.com/hashicorp/terraform-plugin-framework/providerserver"
-	"github.com/hashicorp/terraform-plugin-go/tfprotov6"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/acctest"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
+	"github.com/hashicorp/terraform-plugin-testing/helper/acctest"
+	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
+	"github.com/hashicorp/terraform-plugin-testing/terraform"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -81,21 +80,7 @@ func TestMain(m *testing.M) {
 	os.Unsetenv(hostaliasesEnvKey)
 }
 
-func TestBootstrapGit_InvalidKubernetesConfiguration(t *testing.T) {
-	resource.ParallelTest(t, resource.TestCase{
-		ProtoV6ProviderFactories: map[string]func() (tfprotov6.ProviderServer, error){
-			"flux": providerserver.NewProtocol6WithError(New("dev")()),
-		},
-		Steps: []resource.TestStep{
-			{
-				Config:      bootstrapGitInvalidKubernetesConfiguration(),
-				ExpectError: regexp.MustCompile("Expected configured provider clients."),
-			},
-		},
-	})
-}
-
-func TestBootstrapGit_InvalidCustomization(t *testing.T) {
+func TestAccBootstrapGit_InvalidCustomization(t *testing.T) {
 	kustomizationOverride := `
 kind: Kustomization
 resources:
@@ -105,9 +90,7 @@ resources:
 	}
 
 	resource.ParallelTest(t, resource.TestCase{
-		ProtoV6ProviderFactories: map[string]func() (tfprotov6.ProviderServer, error){
-			"flux": providerserver.NewProtocol6WithError(New("dev")()),
-		},
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{
 				Config:      bootstrapGitCustomization(env, kustomizationOverride),
@@ -117,12 +100,29 @@ resources:
 	})
 }
 
+func TestAccBootstrapGit_TolerationKeys(t *testing.T) {
+	env := environment{
+		httpClone: "https://gitub.com",
+	}
+	resource.ParallelTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config:      bootstrapGitTolerationKeys(env, []string{"-invalid"}),
+				ExpectError: regexp.MustCompile("a toleration key must begin with"),
+			},
+			{
+				Config:      bootstrapGitTolerationKeys(env, []string{"Inval?id"}),
+				ExpectError: regexp.MustCompile("a toleration key must begin with"),
+			},
+		},
+	})
+}
+
 func TestAccBootstrapGit_HTTP(t *testing.T) {
 	env := setupEnvironment(t)
 	resource.ParallelTest(t, resource.TestCase{
-		ProtoV6ProviderFactories: map[string]func() (tfprotov6.ProviderServer, error){
-			"flux": providerserver.NewProtocol6WithError(New("dev")()),
-		},
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{
 				Config: bootstrapGitHTTP(env),
@@ -146,9 +146,7 @@ func TestAccBootstrapGit_HTTP(t *testing.T) {
 func TestAccBootstrapGit_SSH(t *testing.T) {
 	env := setupEnvironment(t)
 	resource.ParallelTest(t, resource.TestCase{
-		ProtoV6ProviderFactories: map[string]func() (tfprotov6.ProviderServer, error){
-			"flux": providerserver.NewProtocol6WithError(New("dev")()),
-		},
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{
 				Config: bootstrapGitSSH(env),
@@ -172,9 +170,7 @@ func TestAccBootstrapGit_SSH(t *testing.T) {
 func TestAccBootstrapGit_Drift(t *testing.T) {
 	env := setupEnvironment(t)
 	resource.ParallelTest(t, resource.TestCase{
-		ProtoV6ProviderFactories: map[string]func() (tfprotov6.ProviderServer, error){
-			"flux": providerserver.NewProtocol6WithError(New("dev")()),
-		},
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			// Basic installation of Flux
 			{
@@ -220,9 +216,7 @@ func TestAccBootstrapGit_Drift(t *testing.T) {
 func TestAccBootstrapGit_Upgrade(t *testing.T) {
 	env := setupEnvironment(t)
 	resource.ParallelTest(t, resource.TestCase{
-		ProtoV6ProviderFactories: map[string]func() (tfprotov6.ProviderServer, error){
-			"flux": providerserver.NewProtocol6WithError(New("dev")()),
-		},
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{
 				Config: bootstrapGitVersion(env, "v0.34.0"),
@@ -247,9 +241,7 @@ func TestAccBootstrapGit_Upgrade(t *testing.T) {
 func TestAccBootstrapGit_Components(t *testing.T) {
 	env := setupEnvironment(t)
 	resource.ParallelTest(t, resource.TestCase{
-		ProtoV6ProviderFactories: map[string]func() (tfprotov6.ProviderServer, error){
-			"flux": providerserver.NewProtocol6WithError(New("dev")()),
-		},
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{
 				Config: bootstrapGitComponents(env),
@@ -258,6 +250,13 @@ func TestAccBootstrapGit_Components(t *testing.T) {
 					resource.TestCheckResourceAttrSet("flux_bootstrap_git.this", "repository_files.flux-system/gotk-components.yaml"),
 					resource.TestCheckResourceAttrSet("flux_bootstrap_git.this", "repository_files.flux-system/gotk-sync.yaml"),
 				),
+			},
+			{
+				Config:            bootstrapGitComponents(env),
+				ResourceName:      "flux_bootstrap_git.this",
+				ImportState:       true,
+				ImportStateId:     "flux-system",
+				ImportStateVerify: true,
 			},
 		},
 	})
@@ -285,9 +284,7 @@ patches:
       labelSelector: app.kubernetes.io/part-of=flux`
 	env := setupEnvironment(t)
 	resource.ParallelTest(t, resource.TestCase{
-		ProtoV6ProviderFactories: map[string]func() (tfprotov6.ProviderServer, error){
-			"flux": providerserver.NewProtocol6WithError(New("dev")()),
-		},
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{
 				Config: bootstrapGitCustomization(env, kustomizationOverride),
@@ -326,64 +323,90 @@ patches:
 	})
 }
 
-func bootstrapGitInvalidKubernetesConfiguration() string {
-	return `
-    provider "flux" {}
+func bootstrapGitTolerationKeys(env environment, tolerationKeys []string) string {
+	return fmt.Sprintf(`
+    provider "flux" {
+	  kubernetes = {
+        config_path = "%s"
+	  }
+	  git = {
+        url = "%s"
+        http = {
+          username = "%s"
+          password = "%s"
+          allow_insecure_http = true
+        }
+	  }
+    }
 
     resource "flux_bootstrap_git" "this" {
-      url = "https://example.com"
-    }
-  `
+		toleration_keys = [%s]		
+	}
+	`, env.kubeCfgPath, env.httpClone, env.username, env.password, `"`+strings.Join(tolerationKeys, `", "`)+`"`)
 }
 
 func bootstrapGitHTTP(env environment) string {
 	return fmt.Sprintf(`
     provider "flux" {
-      config_path = "%s"
+	  kubernetes = {
+        config_path = "%s"
+	  }
+	  git = {
+        url = "%s"
+        http = {
+          username = "%s"
+          password = "%s"
+          allow_insecure_http = true
+        }
+	  }
     }
 
     resource "flux_bootstrap_git" "this" {
-      url = "%s"
-      http = {
-        username = "%s"
-        password = "%s"
-        allow_insecure_http = true
-      }
-    }
+		toleration_keys = ["FooBar", "test"]		
+	}
 	`, env.kubeCfgPath, env.httpClone, env.username, env.password)
 }
 
 func bootstrapGitSSH(env environment) string {
 	return fmt.Sprintf(`
     provider "flux" {
-      config_path = "%s"
+	  kubernetes = {
+        config_path = "%s"
+	  }
+	  git = {
+        url = "%s"
+        ssh = {
+          username = "git"
+          private_key = <<EOF
+%s
+EOF
+        }
+	  }
     }
 
     resource "flux_bootstrap_git" "this" {
-      url = "%s"
-      ssh = {
-        username = "git"
-        private_key = <<EOF
-%s
-EOF
-      }
-    }
+		toleration_keys = ["FooBar", "test"]		
+	}
 	`, env.kubeCfgPath, env.sshClone, env.privateKey)
 }
 
 func bootstrapGitCustomPath(env environment, path string) string {
 	return fmt.Sprintf(`
     provider "flux" {
-      config_path = "%s"
+	  kubernetes = {
+        config_path = "%s"
+	  }
+	  git = {
+        url = "%s"
+        http = {
+          username = "%s"
+          password = "%s"
+          allow_insecure_http = true
+        }
+	  }
     }
 
     resource "flux_bootstrap_git" "this" {
-      url = "%s"
-      http = {
-        username = "%s"
-        password = "%s"
-        allow_insecure_http = true
-      }
       path = "%s"
     }
 	`, env.kubeCfgPath, env.httpClone, env.username, env.password, path)
@@ -392,16 +415,20 @@ func bootstrapGitCustomPath(env environment, path string) string {
 func bootstrapGitVersion(env environment, version string) string {
 	return fmt.Sprintf(`
     provider "flux" {
-      config_path = "%s"
+	  kubernetes = {
+        config_path = "%s"
+	  }
+	  git = {
+        url = "%s"
+        http = {
+          username = "%s"
+          password = "%s"
+          allow_insecure_http = true
+        }
+	  }
     }
 
     resource "flux_bootstrap_git" "this" {
-      url = "%s"
-      http = {
-        username = "%s"
-        password = "%s"
-        allow_insecure_http = true
-      }
       version = "%s"
     }
 	`, env.kubeCfgPath, env.httpClone, env.username, env.password, version)
@@ -410,16 +437,20 @@ func bootstrapGitVersion(env environment, version string) string {
 func bootstrapGitCustomization(env environment, kustomizationOverride string) string {
 	return fmt.Sprintf(`
     provider "flux" {
-      config_path = "%s"
+	  kubernetes = {
+        config_path = "%s"
+	  }
+	  git = {
+        url = "%s"
+        http = {
+          username = "%s"
+          password = "%s"
+          allow_insecure_http = true
+        }
+      }
     }
 
     resource "flux_bootstrap_git" "this" {
-      url = "%s"
-      http = {
-        username = "%s"
-        password = "%s"
-        allow_insecure_http = true
-      }
       kustomization_override = <<EOT
 %s
       EOT
@@ -430,16 +461,20 @@ func bootstrapGitCustomization(env environment, kustomizationOverride string) st
 func bootstrapGitComponents(env environment) string {
 	return fmt.Sprintf(`
     provider "flux" {
-      config_path = "%s"
+	  kubernetes = {
+        config_path = "%s"
+	  }
+	  git = {
+	    url = "%s"
+	    http = {
+	      username = "%s"
+	      password = "%s"
+	      allow_insecure_http = true
+	    }	
+	  }
     }
 
     resource "flux_bootstrap_git" "this" {
-      url = "%s"
-      http = {
-        username = "%s"
-        password = "%s"
-        allow_insecure_http = true
-      }
 	  components           = [
         "helm-controller",
         "kustomize-controller",

@@ -2,6 +2,36 @@
 
 All notable changes to this project are documented in this file.
 
+## 0.25.3
+
+**Release date:** 2023-03-21
+
+This prerelease includes flux2 [v0.41.2](https://github.com/fluxcd/flux2/releases/tag/v0.41.2).
+
+## 0.25.2
+
+**Release date:** 2023-03-20
+
+This prerelease includes flux2 [v0.41.1](https://github.com/fluxcd/flux2/releases/tag/v0.41.1).
+
+Fixes errors caused by passing computed values to certain Git configuration attributes in the provider by delaying the reading of the attributes.
+
+## 0.25.1
+
+**Release date:** 2023-03-10
+
+This prerelease includes flux2 [v0.41.0](https://github.com/fluxcd/flux2/releases/tag/v0.41.0).
+
+Fixes to components extra configuration in `flux_install` datasource which caused it to not be included in the generated manifests.
+
+## 0.25.0
+
+**Release date:** 2023-03-09
+
+This prerelease includes flux2 [v0.41.0](https://github.com/fluxcd/flux2/releases/tag/v0.41.0).
+
+This release contains a breaking configuration change. The git repository configuration including the credentials has been moved from the `flux_bootstrap_git` resource to the provider block. Detailed information can be found in the [documentation](./docs/guides/breaking-provider-configuration.md).
+
 ## 0.24.2
 
 **Release date:** 2023-02-28
